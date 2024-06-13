@@ -1,6 +1,7 @@
 import json
 import boto3
 import base64
+import uuid
 
 def generate_response(status_code=200, message="Success", data=None):
     response = {
@@ -18,6 +19,7 @@ def lambda_handler(event, context):
         print("Received event: " + json.dumps(event, indent=2))
 
         rekognition = boto3.client('rekognition')
+        s3 = boto3.client('s3')
         
         # Verificar se o corpo está presente
         if 'body' not in event:
@@ -41,6 +43,22 @@ def lambda_handler(event, context):
         # Log the decoded image data length
         print(f"Decoded image data length: {len(image_bytes)} bytes")
 
+        # Save image to S3
+        bucket_name = 'esp32rekognition'
+        folder_name = 'faces_history/'
+        image_id = str(uuid.uuid4())
+        image_key = f"{folder_name}{image_id}.png"
+        
+        s3.put_object(
+            Bucket=bucket_name,
+            Key=image_key,
+            Body=image_bytes,
+            ContentType='image/png'
+        )
+        
+        print(f"Image saved to S3: {bucket_name}/{image_key}")
+
+        # Rekognition detect faces
         response = rekognition.detect_faces(
             Image={'Bytes': image_bytes},
             Attributes=['ALL']
