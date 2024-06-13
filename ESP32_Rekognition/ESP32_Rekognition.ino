@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 
 // Camera configuration settings
+#define CAMERA_MODEL_AI_THINKER
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -20,6 +21,7 @@
 #define VSYNC_GPIO_NUM    25
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
+#define FLASH_GPIO_NUM     4  // Flash GPIO pin
 
 // WiFi credentials
 const char* ssid = "Podgorski";
@@ -30,6 +32,10 @@ const char* lambda_url = "https://zqfip4fa2ijubrew2ylxpri57m0iqbjm.lambda-url.us
 
 void setup() {
   Serial.begin(115200);
+
+  // Configure flash GPIO
+  pinMode(FLASH_GPIO_NUM, OUTPUT);
+  digitalWrite(FLASH_GPIO_NUM, LOW); // Ensure flash is off initially
   
   // Camera configuration
   camera_config_t config;
@@ -47,34 +53,51 @@ void setup() {
   config.pin_pclk = PCLK_GPIO_NUM;
   config.pin_vsync = VSYNC_GPIO_NUM;
   config.pin_href = HREF_GPIO_NUM;
-  config.pin_sscb_sda = SIOD_GPIO_NUM;
-  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_UXGA;
+  config.pixel_format = PIXFORMAT_JPEG;  // for streaming
+  //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.jpeg_quality = 12;
+  config.fb_count = 1;
 
   if(psramFound()){
-    config.frame_size = FRAMESIZE_UXGA;
     config.jpeg_quality = 10;
     config.fb_count = 2;
+    config.grab_mode = CAMERA_GRAB_LATEST;
   } else {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
+    config.fb_location = CAMERA_FB_IN_DRAM;
   }
 
-  // Initialize the camera
+  // camera init
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
 
-  // Warm up time for the camera
+  sensor_t *s = esp_camera_sensor_get();
+  // initial sensors are flipped vertically and colors are a bit saturated
+  if (s->id.PID == OV3660_PID) {
+    s->set_vflip(s, 1);        // flip it back
+    s->set_brightness(s, 1);   // up the brightness just a bit
+    s->set_saturation(s, -2);  // lower the saturation
+  }
+  // drop down frame size for higher initial frame rate
+  if (config.pixel_format == PIXFORMAT_JPEG) {
+    s->set_framesize(s, FRAMESIZE_QVGA);
+  }
+
+  // Allow the camera to warm up
   delay(2000);
 
-  // WiFi connection
+  // Connect to Wi-Fi
   Serial.println("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
 
@@ -92,17 +115,25 @@ void setup() {
     return;
   }
 
+  // Turn on the flash
+  digitalWrite(FLASH_GPIO_NUM, HIGH);
+  delay(100); // Wait for the flash to stabilize
+
   // Capture image
   camera_fb_t * fb = NULL;
   fb = esp_camera_fb_get();
   if (!fb) {
     Serial.println("Camera capture failed");
+    digitalWrite(FLASH_GPIO_NUM, LOW); // Turn off the flash
     return;
   }
 
+  // Turn off the flash after capturing the image
+  digitalWrite(FLASH_GPIO_NUM, LOW);
+
   // Check image quality and size
   Serial.printf("Image taken! Size: %u bytes\n", fb->len);
-  
+
   // Convert image to base64
   String base64Image = base64::encode((uint8_t *)fb->buf, fb->len);
 
