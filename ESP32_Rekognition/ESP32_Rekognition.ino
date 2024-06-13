@@ -1,15 +1,14 @@
 #include "esp_camera.h"
 #include <WiFi.h>
-#include "base64.h" // Biblioteca para conversão base64
+#include "base64.h"
 #include <HTTPClient.h>
 
-// Defina as configurações da câmera
+// Camera configuration settings
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
 #define SIOD_GPIO_NUM     26
 #define SIOC_GPIO_NUM     27
-
 #define Y9_GPIO_NUM       35
 #define Y8_GPIO_NUM       34
 #define Y7_GPIO_NUM       39
@@ -22,19 +21,17 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// Defina o nome e a senha da rede Wi-Fi
-// const char* ssid = "Podgorski";
-// const char* password = "p1122334455";
+// WiFi credentials
+const char* ssid = "Podgorski";
+const char* password = "p1122334455";
 
-const char* ssid = "Moto G (5) Plus 2894";
-const char* password = "m1122334455";
-
-// Defina a URL da função Lambda
+// Lambda function URL
 const char* lambda_url = "https://zqfip4fa2ijubrew2ylxpri57m0iqbjm.lambda-url.us-east-1.on.aws";
 
 void setup() {
   Serial.begin(115200);
   
+  // Camera configuration
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -56,7 +53,7 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  
+
   if(psramFound()){
     config.frame_size = FRAMESIZE_UXGA;
     config.jpeg_quality = 10;
@@ -66,71 +63,78 @@ void setup() {
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
-  
-  // Inicializa a câmera
+
+  // Initialize the camera
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("Falha na inicialização da câmera com erro 0x%x", err);
+    Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
 
-  Serial.println("Inicializando a conexão Wi-Fi...");
+  // Warm up time for the camera
+  delay(2000);
+
+  // WiFi connection
+  Serial.println("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
-    Serial.println("Tentando conectar à rede Wi-Fi...");
+    Serial.println("Connecting to Wi-Fi...");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("Conectado com sucesso à rede Wi-Fi!");
-    Serial.print("Endereço IP: ");
+    Serial.println("Connected to Wi-Fi!");
+    Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("Falha ao conectar à rede Wi-Fi.");
+    Serial.println("Failed to connect to Wi-Fi.");
     return;
   }
 
-  // Tirar uma foto
+  // Capture image
   camera_fb_t * fb = NULL;
   fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Falha ao capturar imagem");
+    Serial.println("Camera capture failed");
     return;
   }
 
-  // Converter a imagem para base64
+  // Check image quality and size
+  Serial.printf("Image taken! Size: %u bytes\n", fb->len);
+  
+  // Convert image to base64
   String base64Image = base64::encode((uint8_t *)fb->buf, fb->len);
 
-  // Printar a imagem em base64 no console
-  Serial.println("Fazendo o upload da imagem...");
+  // Print base64 image (optional for debugging)
+  // Serial.println("Base64 image:");
+  // Serial.println(base64Image);
 
-  // Configurar o cliente HTTP
+  // HTTP POST request
+  Serial.println("Uploading image...");
+
   HTTPClient http;
-  http.begin(lambda_url); // No need to disable SSL/TLS verification if the URL is correct
+  http.begin(lambda_url);
   http.addHeader("Content-Type", "text/plain");
 
-  // Enviar a imagem em base64
   int httpResponseCode = http.POST(base64Image);
 
-  // Verificar o resultado da solicitação HTTP
   if (httpResponseCode > 0) {
-    Serial.printf("Imagem enviada com sucesso. Código HTTP: %d\n", httpResponseCode);
+    Serial.printf("Image uploaded successfully. HTTP Response code: %d\n", httpResponseCode);
     String response = http.getString();
-    Serial.println("Resposta do servidor:");
+    Serial.println("Server response:");
     Serial.println(response);
   } else {
-    Serial.printf("Erro ao enviar a imagem. Código HTTP: %d\n", httpResponseCode);
+    Serial.printf("Failed to upload image. HTTP Response code: %d\n", httpResponseCode);
     Serial.println(http.errorToString(httpResponseCode));
   }
 
-  // Finalizar a solicitação HTTP
   http.end();
-
-  // Liberar a memória da imagem
+  
+  // Return the frame buffer back to the driver for reuse
   esp_camera_fb_return(fb);
 }
 
 void loop() {
-  // Nada para fazer aqui
+  // No action in loop
 }
