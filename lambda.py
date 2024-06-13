@@ -2,6 +2,7 @@ import json
 import boto3
 import base64
 import uuid
+from datetime import datetime
 
 def generate_response(status_code=200, message="Success", data=None):
     response = {
@@ -21,7 +22,7 @@ def lambda_handler(event, context):
         rekognition = boto3.client('rekognition')
         s3 = boto3.client('s3')
         
-        # Verificar se o corpo está presente
+        # Check if the body is present
         if 'body' not in event:
             raise ValueError("Missing 'body' in event")
         
@@ -30,7 +31,7 @@ def lambda_handler(event, context):
         # Log the body received
         print("Received body: " + image_data[:50] + "...")  # Log only the first 50 characters for brevity
         
-        # Verificar se a imagem decodificada é válida
+        # Check if the image data is valid
         if not image_data:
             raise ValueError("Image data could not be decoded")
         
@@ -58,15 +59,49 @@ def lambda_handler(event, context):
         
         print(f"Image saved to S3: {bucket_name}/{image_key}")
 
-        # Rekognition detect faces
-        response = rekognition.detect_faces(
-            Image={'Bytes': image_bytes},
-            Attributes=['ALL']
-        )
+        # Get list of student images from S3
+        student_folder = 'students/'
+        student_objects = s3.list_objects_v2(Bucket=bucket_name, Prefix=student_folder)
         
-        return generate_response(status_code=200, message="Image processed successfully", data=response)
+        if 'Contents' not in student_objects:
+            raise ValueError("No student images found in the bucket")
+        
+        matched = False
+        for student_object in student_objects['Contents']:
+            student_image_key = student_object['Key']
+            if student_image_key.endswith('/'):
+                continue  # Skip folders
+            
+            student_image_obj = s3.get_object(Bucket=bucket_name, Key=student_image_key)
+            student_image_bytes = student_image_obj['Body'].read()
+            
+            # Compare faces using Rekognition
+            response = rekognition.compare_faces(
+                SourceImage={'Bytes': image_bytes},
+                TargetImage={'Bytes': student_image_bytes},
+                SimilarityThreshold=90  # Adjust this threshold as needed
+            )
+            
+            if response['FaceMatches']:
+                student_name = student_image_key.split('/')[-1].split('.')[0]
+                print(f"Match found: {student_name}")
+                log_info = {
+                    'MatchedStudent': student_name,
+                    'Timestamp': datetime.now().isoformat(),
+                    'ImageKey': image_key
+                }
+                print(f"Log info: {json.dumps(log_info)}")
+                return generate_response(status_code=200, message=f"Bem vindo {student_name}!")
+        
+        # If no matches were found
+        log_info = {
+            'MatchedStudent': None,
+            'Timestamp': datetime.now().isoformat(),
+            'ImageKey': image_key
+        }
+        print(f"Log info: {json.dumps(log_info)}")
+        return generate_response(status_code=200, message="Estudante não encontrado!")
     
     except Exception as e:
         print("Error: " + str(e))
         return generate_response(status_code=500, message=str(e))
-
