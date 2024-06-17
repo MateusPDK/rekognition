@@ -24,8 +24,11 @@
 #define FLASH_GPIO_NUM     4  // Flash GPIO pin
 
 // WiFi credentials
-const char* ssid = "Podgorski";
-const char* password = "p1122334455";
+const char* ssid = "Mateus PDK";
+const char* password = "m1122334455";
+
+// const char* ssid = "Podgorski";
+// const char* password = "p1122334455";
 
 // Lambda function URL
 const char* lambda_url = "https://zqfip4fa2ijubrew2ylxpri57m0iqbjm.lambda-url.us-east-1.on.aws";
@@ -98,20 +101,20 @@ void setup() {
   delay(2000);
 
   // Connect to Wi-Fi
-  Serial.println("Connecting to Wi-Fi...");
+  Serial.println("Conectando a rede Wi-fi...");
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
-    Serial.println("Connecting to Wi-Fi...");
+    Serial.println("Conectando a rede Wi-fi...");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("Connected to Wi-Fi!");
-    Serial.print("IP Address: ");
+    Serial.println("Wi-Fi conectado!");
+    Serial.print("IP: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("Failed to connect to Wi-Fi.");
+    Serial.println("Falha ao conectar o Wi-Fi.");
     return;
   }
 
@@ -123,7 +126,7 @@ void setup() {
   camera_fb_t * fb = NULL;
   fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Camera capture failed");
+    Serial.println("Captura falhou.");
     digitalWrite(FLASH_GPIO_NUM, LOW); // Turn off the flash
     return;
   }
@@ -132,7 +135,7 @@ void setup() {
   digitalWrite(FLASH_GPIO_NUM, LOW);
 
   // Check image quality and size
-  Serial.printf("Image taken! Size: %u bytes\n", fb->len);
+  Serial.printf("Foto tirada! Tamanho: %u bytes\n", fb->len);
 
   // Convert image to base64
   String base64Image = base64::encode((uint8_t *)fb->buf, fb->len);
@@ -142,21 +145,22 @@ void setup() {
   // Serial.println(base64Image);
 
   // HTTP POST request
-  Serial.println("Uploading image...");
+  Serial.println("Fazendo upload para a AWS...");
 
   HTTPClient http;
   http.begin(lambda_url);
   http.addHeader("Content-Type", "text/plain");
+  http.setTimeout(99999);
 
   int httpResponseCode = http.POST(base64Image);
 
   if (httpResponseCode > 0) {
-    Serial.printf("Image uploaded successfully. HTTP Response code: %d\n", httpResponseCode);
+    Serial.printf("Imagem upada com sucesso");
     String response = http.getString();
-    Serial.println("Server response:");
+    Serial.println("Resposta do servidor:");
     Serial.println(response);
   } else {
-    Serial.printf("Failed to upload image. HTTP Response code: %d\n", httpResponseCode);
+    Serial.printf("Falha ao fazer upload. r: %d\n", httpResponseCode);
     Serial.println(http.errorToString(httpResponseCode));
   }
 
